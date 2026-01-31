@@ -1,0 +1,35 @@
+name: Daily Google Reviews Scraper
+
+on:
+  schedule:
+    # 這裡設定每天凌晨 00:00 執行 (UTC 時間，台灣時間為 08:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 允許手動從網頁按下執行
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 檢出程式碼
+      uses: actions/checkout@v3
+
+    - name: 設定 Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: 安裝套件
+      run: |
+        pip install -r requirements.txt
+
+    - name: 執行程式
+      run: python main.py
+
+    - name: 儲存結果並推回 GitHub
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add reviews_stats.csv
+        git commit -m "Update review stats [skip ci]" || exit 0
+        git push
