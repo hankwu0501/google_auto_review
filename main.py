@@ -1,34 +1,69 @@
+import csv
+import os
+from datetime import datetime
 from serpapi import GoogleSearch
-import json
 
+# 1. 設定你的 SerpApi 金鑰
 API_KEY = "5aa038b8b48605c32e03ecfd269f09b358528fa8f9869cbf5e546fa1471bb922"
 
-# 這裡填入你想測試的店家或 ID
-params = {
-    "engine": "google_maps",
-    "q": "ChIJEQEvweADaDQR5aKm7wBtz5Y", # 以台北101為例
-    "api_key": API_KEY
+# 2. 直接在此定義你的店家清單
+# 建議使用字典格式：{"顯示名稱": "Place ID"}
+STORES = {
+    "板橋": "0x34681d49492982e9:0xd99c4a0f911f5d0d",
 }
 
-search = GoogleSearch(params)
-results = search.get_dict()
+def fetch_and_log():
+    output_file = 'reviews_stats.csv'
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    all_data = []
 
-# --- 輸出重點資訊到螢幕 ---
-print("--- API 回傳結構檢查 ---")
-if "place_results" in results:
-    print("找到 place_results 欄位！")
-    print(f"店名: {results['place_results'].get('title')}")
-    print(f"評論數: {results['place_results'].get('reviews')}")
-elif "local_results" in results:
-    print("找到 local_results 列表（這通常發生在搜尋結果不只一個時）")
-    first_result = results["local_results"][0]
-    print(f"第一筆店名: {first_result.get('title')}")
-    print(f"第一筆評論數: {first_result.get('reviews')}")
-else:
-    print("找不到 place_results 或 local_results，請檢查 API 回傳內容")
+    print(f"--- 開始抓取數據 ({now}) ---")
 
-# --- 將完整 JSON 存檔，方便你打開來看 ---
-with open('debug_output.json', 'w', encoding='utf-8') as f:
-    json.dump(results, f, indent=2, ensure_ascii=False)
+    for name, p_id in STORES.items():
+        params = {
+            "engine": "google_maps_reviews",
+            "data_id": p_id,
+            "api_key": API_KEY
+        }
 
-print("\n--- 完整回傳內容已存至 debug_output.json ---")
+        try:
+            search = GoogleSearch(params)
+            results = search.get_dict()
+            
+            # 從結果中提取評分與評論數
+            place_info = results.get("place_info", {})
+            rating = place_info.get("rating", 0)
+            reviews = place_info.get("reviews", 0)
+
+            print(f"成功: [{name}] - {reviews} 則評論 ({rating}⭐)")
+
+            all_data.append({
+                "時間": now,
+                "店家名稱": name,
+                "評論總數": reviews,
+                "平均評分": rating,
+                "Place_ID": p_id
+            })
+
+        except Exception as e:
+            print(f"錯誤: [{name}] 抓取失敗 - {e}")
+
+    # 儲存結果
+    save_to_file(output_file, all_data)
+
+def save_to_file(filename, data_list):
+    if not data_list: return
+    
+    file_exists = os.path.isfile(filename)
+    keys = data_list[0].keys()
+
+    with open(filename, mode='a', newline='', encoding='utf-8-sig') as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerows(data_list)
+    
+    print(f"\n--- 任務完成，數據已存入 {filename} ---")
+
+if __name__ == "__main__":
+    fetch_and_log()
