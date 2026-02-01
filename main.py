@@ -60,6 +60,7 @@ def fetch_and_log():
         try:
             search = GoogleSearch(params)
             results = search.get_dict()
+            print(results)
             place_info = results.get("place_info", {})
             
             rating = place_info.get("rating", 0)
