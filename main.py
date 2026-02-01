@@ -1,6 +1,6 @@
 import csv
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from serpapi import GoogleSearch
 
 API_KEY = "5aa038b8b48605c32e03ecfd269f09b358528fa8f9869cbf5e546fa1471bb922"
@@ -15,40 +15,49 @@ STORES = {
     "梅花湖": "0x3467e77197a62b11:0xf852610c779dc99d",
 }
 
-def get_last_stats(filename):
-    """讀取最後一次的記錄，用來計算增量"""
-    last_data = {}
-    if not os.path.exists(filename):
-        return last_data
+def get_last_stats_from_files():
+    """自動尋找當月或上個月的檔案來讀取最後一筆紀錄"""
+    now = datetime.now()
+    current_file = f"reviews_{now.strftime('%Y_%m')}.csv"
     
-    with open(filename, mode='r', encoding='utf-8-sig') as f:
-        reader = list(csv.DictReader(f))
-        if not reader:
-            return last_data
-        
-        # 取得每一家店最後一筆記錄
-        for row in reader:
-            last_data[row['店家名稱']] = {
-                'reviews': int(row['評論總數']),
-                'monthly_sum': int(row.get('本月累計增長', 0))
-            }
-    return last_data
+    # 優先找當月的檔案
+    if os.path.exists(current_file):
+        return read_csv_last_row(current_file), False
+    
+    # 如果當月還沒產生檔案 (例如 1 號第一次執行)，找上個月的檔案
+    last_month = now.replace(day=1) - timedelta(days=1)
+    prev_file = f"reviews_{last_month.strftime('%Y_%m')}.csv"
+    
+    if os.path.exists(prev_file):
+        return read_csv_last_row(prev_file), True # True 代表這是跨月了
+    
+    return {}, False
+
+def read_csv_last_row(filename):
+    data = {}
+    try:
+        with open(filename, mode='r', encoding='utf-8-sig') as f:
+            reader = list(csv.DictReader(f))
+            if not reader: return data
+            # 取得各店最後一筆數據
+            for row in reader:
+                data[row['店家名稱']] = {
+                    'reviews': int(row['評論總數']),
+                    'monthly_sum': int(row.get('本月累計增長', 0))
+                }
+    except Exception as e:
+        print(f"讀取 {filename} 失敗: {e}")
+    return data
 
 def fetch_and_log():
-    output_file = 'reviews_stats.csv'
     now_dt = datetime.now()
-    now_str = now_dt.strftime("%Y-%m-%d %H:%M")
+    current_filename = f"reviews_{now_dt.strftime('%Y_%m')}.csv"
     
-    # --- 每月 1 號重置邏輯 ---
-    if now_dt.day == 1 and not os.path.exists(f"backup_{now_dt.strftime('%Y%m')}.csv"):
-        print("📅 今日為 1 號，重置本月統計資料...")
-        if os.path.exists(output_file):
-            os.rename(output_file, f"archive_{now_dt.strftime('%Y%m')}_last_month.csv")
-    
-    last_stats = get_last_stats(output_file)
-    all_data = []
+    # 讀取最後一次紀錄 (會自動判斷要讀哪個月的檔案)
+    last_stats, is_new_month = get_last_stats_from_files()
 
-    print(f"--- 數據抓取中 ({now_str}) ---")
+    all_data = []
+    report_lines = [f"{now_dt.month}/{now_dt.day}"]
 
     for name, p_id in STORES.items():
         params = {
@@ -60,47 +69,52 @@ def fetch_and_log():
         try:
             search = GoogleSearch(params)
             results = search.get_dict()
-            print(results)
             place_info = results.get("place_info", {})
             
             rating = place_info.get("rating", 0)
             current_reviews = place_info.get("reviews", 0)
 
-            # 計算「今」與「共」
-            last_store_data = last_stats.get(name, {'reviews': current_reviews, 'monthly_sum': 0})
+            # 取得參考數據
+            prev = last_stats.get(name, {'reviews': current_reviews, 'monthly_sum': 0})
             
-            # 今日增加 = 現在總數 - 上次紀錄總數
-            today_increase = current_reviews - last_store_data['reviews']
-            if today_increase < 0: today_increase = 0 # 防止因 Google 刪評論變成負數
+            # 1. 計算「今」：永遠跟最後一次紀錄比 (不論是否跨月)
+            today_inc = current_reviews - prev['reviews']
+            if today_inc < 0: today_inc = 0
             
-            # 本月共計 = 上次的累計 + 今日增加
-            total_monthly_increase = last_store_data['monthly_sum'] + today_increase
+            # 2. 計算「共」：如果是新月份的第一筆，重置為今日增量
+            if is_new_month:
+                monthly_total = today_inc
+            else:
+                monthly_total = prev['monthly_sum'] + today_inc
 
-            # 符合你要求的格式輸出
-            # 格式：評分 店名 總數 今X 共X
-            print(f"{rating}{name}{current_reviews}今{today_increase}共{total_monthly_increase}")
+            line = f"{rating}{name}{current_reviews}今{today_inc}共{monthly_total}"
+            report_lines.append(line)
 
             all_data.append({
-                "時間": now_str,
+                "時間": now_dt.strftime("%Y-%m-%d %H:%M"),
                 "店家名稱": name,
                 "平均評分": rating,
                 "評論總數": current_reviews,
-                "今日增長": today_increase,
-                "本月累計增長": total_monthly_increase,
+                "今日增長": today_inc,
+                "本月累計增長": monthly_total,
                 "Place_ID": p_id
             })
 
         except Exception as e:
-            print(f"錯誤: [{name}] - {e}")
+            report_lines.append(f"錯誤: {name} 抓取失敗")
 
-    save_to_file(output_file, all_data)
+    # 輸出最終字串
+    final_report = "\n".join(report_lines)
+    print("\n" + final_report + "\n")
+
+    # 存入當月的 CSV
+    save_to_file(current_filename, all_data)
 
 def save_to_file(filename, data_list):
     if not data_list: return
     file_exists = os.path.isfile(filename)
-    keys = data_list[0].keys()
     with open(filename, mode='a', newline='', encoding='utf-8-sig') as f:
-        writer = csv.DictWriter(f, fieldnames=keys)
+        writer = csv.DictWriter(f, fieldnames=data_list[0].keys())
         if not file_exists:
             writer.writeheader()
         writer.writerows(data_list)
