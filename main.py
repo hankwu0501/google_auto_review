@@ -2,6 +2,34 @@ import csv
 import os
 from datetime import datetime, timedelta
 from serpapi import GoogleSearch
+import requests
+
+CHANNEL_ACCESS_TOKEN = "SzutDgGTkjHmHxDCwLAeud/8lNDsbKwpD8bWl37ZN8QWBGkWX5QCEK9oZ8eW02CwfH1+dKUI4Qv04ZOkdU3VAmEMA/vxTuWGn9zhHpp7Nj2vTjTagSGlgi4Ccy8DIxW5RonqO739QBVphoRXwq4lhAdB04t89/1O/w1cDnyilFU="
+USER_ID = "U8fe13fbdbb8573206a4dd7a4ce2675a8"
+
+def lineNotifyMessage(message):
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
+    }
+    data = {
+        "to": USER_ID,
+        "messages": [
+            {
+                "type": "text",
+                "text": message
+            }
+        ]
+    }
+    
+    response = requests.post(url, headers=headers, json=data)
+    
+    if response.status_code == 200:
+        print("訊息發送成功！")
+    else:
+        print("發送失敗，錯誤碼：", response.status_code)
+        print("回應內容：", response.text)
 
 API_KEY = "5aa038b8b48605c32e03ecfd269f09b358528fa8f9869cbf5e546fa1471bb922"
 
@@ -106,6 +134,7 @@ def fetch_and_log():
     # 輸出最終字串
     final_report = "\n".join(report_lines)
     print("\n" + final_report + "\n")
+    lineNotifyMessage(final_report)
 
     # 存入當月的 CSV
     save_to_file(current_filename, all_data)
