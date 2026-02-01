@@ -76,16 +76,16 @@ def read_csv_last_row(filename):
     except Exception as e:
         print(f"讀取 {filename} 失敗: {e}")
     return data
-
 def fetch_and_log():
     now_dt = datetime.now()
     current_filename = f"reviews_{now_dt.strftime('%Y_%m')}.csv"
     
-    # 讀取最後一次紀錄 (會自動判斷要讀哪個月的檔案)
+    # 讀取最後一次紀錄
     last_stats, is_new_month = get_last_stats_from_files()
 
-    all_data = []
-    report_lines = [f"{now_dt.month}/{now_dt.day}"]
+    temp_store_list = [] # 暫存抓取到的物件，用來排序
+
+    print(f"--- 數據抓取中 ({now_dt.strftime('%Y-%m-%d %H:%M')}) ---")
 
     for name, p_id in STORES.items():
         params = {
@@ -105,31 +105,48 @@ def fetch_and_log():
             # 取得參考數據
             prev = last_stats.get(name, {'reviews': current_reviews, 'monthly_sum': 0})
             
-            # 1. 計算「今」：永遠跟最後一次紀錄比 (不論是否跨月)
+            # 計算增量
             today_inc = current_reviews - prev['reviews']
             if today_inc < 0: today_inc = 0
             
-            # 2. 計算「共」：如果是新月份的第一筆，重置為今日增量
-            if is_new_month:
-                monthly_total = today_inc
-            else:
-                monthly_total = prev['monthly_sum'] + today_inc
+            # 計算共 (本月累計)
+            monthly_total = today_inc if is_new_month else prev['monthly_sum'] + today_inc
 
-            line = f"{rating}{name}{current_reviews}今{today_inc}共{monthly_total}"
-            report_lines.append(line)
-
-            all_data.append({
-                "時間": now_dt.strftime("%Y-%m-%d %H:%M"),
-                "店家名稱": name,
-                "平均評分": rating,
-                "評論總數": current_reviews,
-                "今日增長": today_inc,
-                "本月累計增長": monthly_total,
-                "Place_ID": p_id
+            # 暫存資料
+            temp_store_list.append({
+                "rating": rating,
+                "name": name,
+                "current_reviews": current_reviews,
+                "today_inc": today_inc,
+                "monthly_total": monthly_total,
+                "p_id": p_id
             })
 
         except Exception as e:
-            report_lines.append(f"錯誤: {name} 抓取失敗")
+            print(f"錯誤: {name} 抓取失敗 - {e}")
+
+    # --- 關鍵步驟：根據 'monthly_total' (共) 由大到小排序 ---
+    sorted_list = sorted(temp_store_list, key=lambda x: x['monthly_total'], reverse=True)
+
+    # 建立報告字串
+    report_lines = [f"{now_dt.month}/{now_dt.day}"]
+    all_data_for_csv = []
+
+    for item in sorted_list:
+        # 生成顯示字串
+        line = f"{item['rating']}{item['name']}{item['current_reviews']}今{item['today_inc']}共{item['monthly_total']}"
+        report_lines.append(line)
+
+        # 生成 CSV 用的資料
+        all_data_for_csv.append({
+            "時間": now_dt.strftime("%Y-%m-%d %H:%M"),
+            "店家名稱": item['name'],
+            "平均評分": item['rating'],
+            "評論總數": item['current_reviews'],
+            "今日增長": item['today_inc'],
+            "本月累計增長": item['monthly_total'],
+            "Place_ID": item['p_id']
+        })
 
     # 輸出最終字串
     final_report = "\n".join(report_lines)
