@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 from serpapi import GoogleSearch
 
-API_KEY = "你的_API_KEY"
+API_KEY = "5aa038b8b48605c32e03ecfd269f09b358528fa8f9869cbf5e546fa1471bb922"
 
 STORES = {
     "板橋": "0x346803e0c12f0111:0x96cf6d00efa6a2e5",
